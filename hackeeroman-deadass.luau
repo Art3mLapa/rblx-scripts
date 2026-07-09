@@ -32,11 +32,11 @@ local theme = {
 Neverlose:AddTheme("Opposed", theme)
 Neverlose:AddTheme("Default", theme)
 
--- Hide the built-in Keybinds panel (created during library load).
 for _, d in ipairs(drawings) do
     pcall(function()
-        if d.ZIndex == 100 or d.ZIndex == 101 then d.Visible = false end       -- panel + title
-        if d.Filled == false and d.Thickness == 1.5 then d.Visible = false end  -- glow layers
+        if d.ZIndex == 100 then d.Color = theme.Section
+        elseif d.ZIndex == 101 then d.Color = theme.Accent
+        elseif d.Filled == false and d.Thickness == 1.5 then d.Color = theme.Accent end
     end)
 end
 
