@@ -32,13 +32,11 @@ local theme = {
 Neverlose:AddTheme("Opposed", theme)
 Neverlose:AddTheme("Default", theme)
 
--- Recolor the Keybinds panel — it was created before AddTheme, so it still
--- holds the original blue colors. Glow layers matched by Filled=false + Thickness=1.5.
+-- Hide the built-in Keybinds panel (created during library load).
 for _, d in ipairs(drawings) do
     pcall(function()
-        if d.ZIndex == 100 then d.Color = theme.Section
-        elseif d.ZIndex == 101 then d.Color = theme.Accent
-        elseif d.Filled == false and d.Thickness == 1.5 then d.Color = theme.Accent end
+        if d.ZIndex == 100 or d.ZIndex == 101 then d.Visible = false end       -- panel + title
+        if d.Filled == false and d.Thickness == 1.5 then d.Visible = false end  -- glow layers
     end)
 end
 
@@ -82,13 +80,24 @@ table.insert(drawings, bgImage)
 
 local Config = {
     ESP = { Player = false },
-    Visual = { NoFog = false, FullBright = false },
+    Visual = { FullBright = false },
     Aimbot = {
-        RightHand  = false,
-        LeftHand   = false,
-        FOV        = 30,
-        Smoothness = 50,       -- 0 = instant, 100 = very smooth
-        TargetPart = "Head",   -- "Head" / "Torso" / "Any"
+        RightHand     = false,
+        LeftHand      = false,
+        FOV           = 30,
+        Smoothness    = 50,       -- 0 = instant, 100 = very smooth
+        TargetPart    = "Head",   -- "Head" / "Torso" / "Any"
+        DistanceCheck = false,
+        MaxDistance   = 500,
+        TeamCheck     = false,
+    },
+    Detector = {
+        Staff  = false,
+        Lethal = false,
+    },
+    Other = {
+        NoCollideRight = false,
+        NoCollideLeft  = false,
     },
 }
 local Controls = {}
@@ -117,7 +126,7 @@ local ENV_OFF = {
     },
 }
 
--- buggy shit
+-- buggy shit (little bit fixed)
 local envColorFmt
 do
     local ambOff = ENV_OFF.Lighting.Ambient
@@ -159,7 +168,7 @@ local function envCapture()
     end
 end
 envCapture()
--- art3mlapa
+
 local function envWriteColor(off, val)
     if envColorFmt == "packed" then
         for i = 0, 2 do pcall(memory_write, "byte", ENV_LIGHT + off + i, val) end
@@ -169,18 +178,6 @@ local function envWriteColor(off, val)
         pcall(memory_write, "float", ENV_LIGHT + off, n)
         pcall(memory_write, "float", ENV_LIGHT + off + 4, n)
         pcall(memory_write, "float", ENV_LIGHT + off + 8, n)
-    end
-end
-
-local function envApplyNoFog()
-    local L, A = ENV_OFF.Lighting, ENV_OFF.Atmosphere
-    pcall(memory_write, "float", ENV_LIGHT + L.FogStart, 9e8)
-    pcall(memory_write, "float", ENV_LIGHT + L.FogEnd, 9e8)
-    if ENV_ATMO > 0 then
-        pcall(memory_write, "float", ENV_ATMO + A.Density, 0)
-        pcall(memory_write, "float", ENV_ATMO + A.Glare, 0)
-        pcall(memory_write, "float", ENV_ATMO + A.Haze, 0)
-        pcall(memory_write, "float", ENV_ATMO + A.Offset, 0)
     end
 end
 
@@ -216,6 +213,25 @@ end
 Window:CreateTabSection("Categories")
 Window:CreateTab("Visual")
 Window:CreateTab("Combat")
+Window:CreateTab("Other")
+
+-- other: detectors
+local detSection = Window:CreateSection("Detectors", "Other")
+Controls.DET_Staff = detSection:AddToggle("Staff Detector", false, function(v)
+    Config.Detector.Staff = v
+end)
+Controls.DET_Lethal = detSection:AddToggle("Lethal Detector", false, function(v)
+    Config.Detector.Lethal = v
+end)
+
+-- other: no collide
+local collSection = Window:CreateSection("No Collide", "Other")
+Controls.OTH_NoCollideR = collSection:AddToggle("Right Arm", false, function(v)
+    Config.Other.NoCollideRight = v
+end)
+Controls.OTH_NoCollideL = collSection:AddToggle("Left Arm", false, function(v)
+    Config.Other.NoCollideLeft = v
+end)
 
 -- visual: ESP
 local espSection = Window:CreateSection("ESP", "Visual")
@@ -225,9 +241,6 @@ end)
 
 -- visual: environment
 local envSection = Window:CreateSection("Environment", "Visual")
-Controls.VIS_NoFog = envSection:AddToggle("No Fog", false, function(v)
-    Config.Visual.NoFog = v
-end)
 Controls.VIS_FullBright = envSection:AddToggle("FullBright", false, function(v)
     Config.Visual.FullBright = v
 end)
@@ -251,6 +264,16 @@ Controls.Aimbot_Smoothness = aimbotSection:AddSlider("Smoothness", {
     Min = 0, Max = 100, Default = 50,
     Callback = function(v) Config.Aimbot.Smoothness = v end,
 })
+Controls.Aimbot_DistanceCheck = aimbotSection:AddToggle("Distance Check", false, function(v)
+    Config.Aimbot.DistanceCheck = v
+end)
+Controls.Aimbot_MaxDistance = aimbotSection:AddSlider("Max Distance", {
+    Min = 5, Max = 2500, Default = 500,
+    Callback = function(v) Config.Aimbot.MaxDistance = v end,
+})
+Controls.Aimbot_TeamCheck = aimbotSection:AddToggle("Team Check", false, function(v)
+    Config.Aimbot.TeamCheck = v
+end)
 
 local SLIDER_FILL = Color3.fromRGB(70, 70, 70)
 for i, item in ipairs(aimbotSection.ContentDrawings) do
@@ -267,13 +290,19 @@ local CONFIG_FILE = "opposedart3.json"
 
 local saveableKeys = {
     { ctrl = "ESP_Player",         cfg = function() return Config.ESP.Player end,           apply = function(v) Config.ESP.Player = v end },
-    { ctrl = "VIS_NoFog",          cfg = function() return Config.Visual.NoFog end,         apply = function(v) Config.Visual.NoFog = v end },
     { ctrl = "VIS_FullBright",     cfg = function() return Config.Visual.FullBright end,    apply = function(v) Config.Visual.FullBright = v end },
     { ctrl = "Aimbot_Right",       cfg = function() return Config.Aimbot.RightHand end,     apply = function(v) Config.Aimbot.RightHand = v end },
     { ctrl = "Aimbot_Left",        cfg = function() return Config.Aimbot.LeftHand end,      apply = function(v) Config.Aimbot.LeftHand = v end },
     { ctrl = "Aimbot_TargetPart",  cfg = function() return Config.Aimbot.TargetPart end,    apply = function(v) Config.Aimbot.TargetPart = v end },
-    { ctrl = "Aimbot_FOV",         cfg = function() return Config.Aimbot.FOV end,           apply = function(v) Config.Aimbot.FOV = v end },
-    { ctrl = "Aimbot_Smoothness",  cfg = function() return Config.Aimbot.Smoothness end,    apply = function(v) Config.Aimbot.Smoothness = v end },
+    { ctrl = "Aimbot_FOV",            cfg = function() return Config.Aimbot.FOV end,             apply = function(v) Config.Aimbot.FOV = v end },
+    { ctrl = "Aimbot_Smoothness",     cfg = function() return Config.Aimbot.Smoothness end,      apply = function(v) Config.Aimbot.Smoothness = v end },
+    { ctrl = "Aimbot_DistanceCheck",  cfg = function() return Config.Aimbot.DistanceCheck end,   apply = function(v) Config.Aimbot.DistanceCheck = v end },
+    { ctrl = "Aimbot_MaxDistance",    cfg = function() return Config.Aimbot.MaxDistance end,     apply = function(v) Config.Aimbot.MaxDistance = v end },
+    { ctrl = "Aimbot_TeamCheck",      cfg = function() return Config.Aimbot.TeamCheck end,       apply = function(v) Config.Aimbot.TeamCheck = v end },
+    { ctrl = "DET_Staff",             cfg = function() return Config.Detector.Staff end,         apply = function(v) Config.Detector.Staff = v end },
+    { ctrl = "DET_Lethal",            cfg = function() return Config.Detector.Lethal end,        apply = function(v) Config.Detector.Lethal = v end },
+    { ctrl = "OTH_NoCollideR",        cfg = function() return Config.Other.NoCollideRight end,  apply = function(v) Config.Other.NoCollideRight = v end },
+    { ctrl = "OTH_NoCollideL",        cfg = function() return Config.Other.NoCollideLeft end,   apply = function(v) Config.Other.NoCollideLeft = v end },
 }
 
 local function saveConfig()
@@ -286,7 +315,7 @@ local function saveConfig()
         writefile("Opposed/" .. CONFIG_FILE, HttpService:JSONEncode(data))
     end)
 end
--- art3mlapa
+
 local function loadConfig()
     local ok, raw = pcall(function() return readfile("Opposed/" .. CONFIG_FILE) end)
     if not ok or not raw then return end
@@ -346,7 +375,7 @@ local function espRestore()
         pcall(memory_write, "byte",  a + HUM_OFF.NameOcclusion, 0)
     end
 end
--- art3mlapa
+
 spawn(function()
     local wasOn = false
     while true do
@@ -358,14 +387,11 @@ spawn(function()
     end
 end)
 
--- NEED FIX: nofog and fullbright have same effect
-
+-- environment loop: re-apply FullBright while on, restore when off
 spawn(function()
-    local nofogOn, fbOn = false, false
+    local fbOn = false
     while true do
         pcall(function()
-            if Config.Visual.NoFog then envApplyNoFog(); nofogOn = true
-            elseif nofogOn then envRestoreAll(); nofogOn = false end
             if Config.Visual.FullBright then envApplyFullBright(); fbOn = true
             elseif fbOn then envRestoreAll(); fbOn = false end
         end)
@@ -396,11 +422,22 @@ local function orient(axisVec, ap, tp, upHint)
     return buildCF(ap, vx, vy, vz)
 end
 
-local function getTargetPart(model)
+local function getTargetParts(model)
     local tp = Config.Aimbot.TargetPart
-    if tp == "Head" then return model:FindFirstChild("Head")
-    elseif tp == "Torso" then return model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart")
-    else return model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso") or model:FindFirstChild("Head") end
+    if tp == "Head" then
+        local h = model:FindFirstChild("Head")
+        return h and { h } or {}
+    elseif tp == "Torso" then
+        local t = model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart")
+        return t and { t } or {}
+    else -- "Any": return all available parts, aimHand picks the closest to FOV center
+        local parts = {}
+        for _, name in ipairs({ "Head", "Torso", "HumanoidRootPart", "Body" }) do
+            local p = model:FindFirstChild(name)
+            if p and p:IsA("BasePart") then parts[#parts + 1] = p end
+        end
+        return parts
+    end
 end
 
 local targetCache, targetStamp = {}, 0
@@ -417,12 +454,16 @@ local function getTargets()
                 if hum then
                     local alive = true; pcall(function() alive = hum.Health > 0 end)
                     if alive then
+                        -- Team Check: skip same-team players when enabled
                         local sameTeam = false
-                        local plr = Players:FindFirstChild(m.Name)
-                        if plr and plr.Team and myTeam and plr.Team == myTeam then sameTeam = true end
+                        if Config.Aimbot.TeamCheck then
+                            local plr = Players:FindFirstChild(m.Name)
+                            if plr and plr.Team and myTeam and plr.Team == myTeam then sameTeam = true end
+                        end
                         if not sameTeam then
-                            local part = getTargetPart(m)
-                            if part then out[#out + 1] = { part = part, model = m } end
+                            for _, part in ipairs(getTargetParts(m)) do
+                                out[#out + 1] = { part = part, model = m }
+                            end
                         end
                     end
                 end
@@ -456,10 +497,21 @@ local function restoreConstraints(state)
 end
 
 local aimStateR, aimStateL = {}, {}
--- art3mlapa
+
 local function aimHand(vHand, armName, state, enabled)
-    local arm = Players.LocalPlayer.Character and Players.LocalPlayer.Character:FindFirstChild(armName)
+    local lpChar = Players.LocalPlayer.Character
+    local arm = lpChar and lpChar:FindFirstChild(armName)
     if not enabled or not arm or not vHand or not vHand.Parent then
+        restoreConstraints(state)
+        state.smoothPos = nil
+        return
+    end
+    -- Pause if the local player is dead -- let the arm follow the body
+    -- naturally during death/respawn instead of floating in place.
+    local hum = lpChar:FindFirstChildOfClass("Humanoid")
+    local alive = true
+    pcall(function() alive = hum and hum.Health > 0 end)
+    if not alive then
         restoreConstraints(state)
         state.smoothPos = nil
         return
@@ -467,16 +519,22 @@ local function aimHand(vHand, armName, state, enabled)
     disableConstraints(arm, state)
 
     local hcf = vHand.CFrame
-    local hPos, look, negUp = hcf.Position, hcf.LookVector, -hcf.UpVector
+    local look, negUp = hcf.LookVector, -hcf.UpVector
+    -- Use the ARM's own position (not the controller's) as the CFrame origin.
+    -- This prevents the arm from teleporting to the controller position each frame
+    -- (which caused the "jerking to controller" effect). The arm stays at its
+    -- natural shoulder position; only the ORIENTATION changes to aim at the target.
+    local armPos = arm.CFrame.Position
 
     -- find best target on fov
     local best, bestAng = nil, math.huge
+    local maxDist = Config.Aimbot.DistanceCheck and Config.Aimbot.MaxDistance or 2500
     for _, t in ipairs(getTargets()) do
         local ok, tp = pcall(function() return t.part.Position end)
         if ok and tp then
-            local diff = tp - hPos
+            local diff = tp - hcf.Position
             local dist = diff.Magnitude
-            if dist > 0.5 and dist <= 500 then
+            if dist > 0.5 and dist <= maxDist then
                 local ang = math.deg(math.acos(math.clamp(look:Dot(diff / dist), -1, 1)))
                 if ang < Config.Aimbot.FOV and ang < bestAng then bestAng = ang; best = t end
             end
@@ -486,14 +544,15 @@ local function aimHand(vHand, armName, state, enabled)
     if best then
         local ok, tp = pcall(function() return best.part.Position end)
         if ok and tp then
-            -- smoothness (low-pas filter)
+            -- smoothness (low-pass filter)
             local sf = 1.0 - (Config.Aimbot.Smoothness / 100) * 0.95
             if not state.smoothPos or (state.smoothPos - tp).Magnitude > 30 then
                 state.smoothPos = tp
             else
                 state.smoothPos = state.smoothPos + (tp - state.smoothPos) * sf
             end
-            local tcf = orient(Vector3.new(0, -1, 0), hPos, state.smoothPos, negUp)
+            -- orient from the ARM's position (stays on shoulder), aiming -Y at target
+            local tcf = orient(Vector3.new(0, -1, 0), armPos, state.smoothPos, negUp)
             if tcf then pcall(function() arm.CFrame = tcf end) end
         end
     else
@@ -509,14 +568,102 @@ local aimbotConn = RunService.RenderStepped:Connect(function()
     end)
 end)
 
+-- no collide
+spawn(function()
+    while true do
+        pcall(function()
+            local char = Players.LocalPlayer.Character
+            if char then
+                if Config.Other.NoCollideRight then
+                    local arm = char:FindFirstChild("Right Arm")
+                    if arm then pcall(function() arm.CanCollide = false end) end
+                end
+                if Config.Other.NoCollideLeft then
+                    local arm = char:FindFirstChild("Left Arm")
+                    if arm then pcall(function() arm.CanCollide = false end) end
+                end
+            end
+        end)
+        wait()
+    end
+end)
+
+-- staff (developers, moderators, suckdickers etc etc etc)
+local GROUP_ID     = 9959763
+local STAFF_RANKS  = { [250]=1, [251]=1, [252]=1, [253]=1, [254]=1, [54]=1, [55]=1, [53]=1 }
+local LETHAL_RANKS = { [25]=1, [52]=1 }
+local detHttp      = game:GetService("HttpService")
+
+local function kickLocal(reason)
+    pcall(function()
+        local lp = Players.LocalPlayer
+        if lp then lp:Kick(reason) end
+    end)
+end
+
+-- thx luavm api
+local function getGroupRank(userId)
+    local ok, body = pcall(function()
+        return game:HttpGet("https://groups.roblox.com/v1/users/" .. userId .. "/groups/roles")
+    end)
+    if not ok or not body or #body == 0 then return 0 end
+    local ok2, parsed = pcall(function() return detHttp:JSONDecode(body) end)
+    if not ok2 or not parsed or not parsed.data then return 0 end
+    for _, entry in ipairs(parsed.data) do
+        if entry.group and entry.group.id == GROUP_ID then
+            return entry.role and entry.role.rank or 0
+        end
+    end
+    return 0
+end
+
+-- cache
+local detectorChecked = {}
+
+local function checkPlayer(plr)
+    if not plr or detectorChecked[plr] then return end
+    detectorChecked[plr] = true
+    local rank = getGroupRank(plr.UserId)
+    if rank == 0 then return end
+    if Config.Detector.Staff and STAFF_RANKS[rank] then
+        kickLocal("[OPPOSED] Staff Detected: " .. plr.Name)
+    elseif Config.Detector.Lethal and LETHAL_RANKS[rank] then
+        kickLocal("[OPPOSED] Lethal Detected: " .. plr.Name)
+    end
+end
+
+-- check roles
+spawn(function()
+    while true do
+        pcall(function()
+            if Config.Detector.Staff or Config.Detector.Lethal then
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    checkPlayer(plr)
+                end
+            end
+        end)
+        wait(3)
+    end
+end)
+
+if Players.PlayerAdded then
+    Players.PlayerAdded:Connect(function(plr)
+        pcall(function()
+            if Config.Detector.Staff or Config.Detector.Lethal then
+                checkPlayer(plr)
+            end
+        end)
+    end)
+end
+
 -- gui
 Window:Finalize()
 
--- About page
+-- about page
 Window:CreateTab("About")
 local aboutSection = Window:CreateSection("About", "About")
 aboutSection.Width = 450
-aboutSection:AddLabel("Opposed VR REWORK 0.1 Beta")
+aboutSection:AddLabel("Opposed VR REWORK 0.2 Beta")
 aboutSection:AddLabel("By Art3mLapa (https://github.com/Art3mLapa)")
 aboutSection:AddLabel("Original Developer (stinky): HackerooMan/OpposedDev")
 aboutSection:AddLabel("UI Lib: Arcane (Oracle228)")
@@ -563,6 +710,6 @@ spawn(function()
         pcall(saveConfig)
     end
 end)
--- art3mlapa
+
 Neverlose:Notify("Opposed.REWORK", "Loaded successfully", 5)
 print("[Opposed.REWORK] UI ready.")
