@@ -305,22 +305,25 @@ local saveableKeys = {
     { ctrl = "OTH_NoCollideL",        cfg = function() return Config.Other.NoCollideLeft end,   apply = function(v) Config.Other.NoCollideLeft = v end },
 }
 
-local function saveConfig()
+local function saveConfig(name)
+    name = name or CONFIG_FILE
     local data = {}
     for _, k in ipairs(saveableKeys) do
         data[k.ctrl] = k.cfg()
     end
     pcall(function()
         if not isfolder("Opposed") then makefolder("Opposed") end
-        writefile("Opposed/" .. CONFIG_FILE, HttpService:JSONEncode(data))
+        writefile("Opposed/" .. name, HttpService:JSONEncode(data))
     end)
+    print("[Opposed] Config saved: " .. name)
 end
 
-local function loadConfig()
-    local ok, raw = pcall(function() return readfile("Opposed/" .. CONFIG_FILE) end)
-    if not ok or not raw then return end
+local function loadConfig(name)
+    name = name or CONFIG_FILE
+    local ok, raw = pcall(function() return readfile("Opposed/" .. name) end)
+    if not ok or not raw then return false end
     local ok2, data = pcall(function() return HttpService:JSONDecode(raw) end)
-    if not ok2 or type(data) ~= "table" then return end
+    if not ok2 or type(data) ~= "table" then return false end
     for _, k in ipairs(saveableKeys) do
         local v = data[k.ctrl]
         if v ~= nil then
@@ -331,7 +334,22 @@ local function loadConfig()
             end
         end
     end
-    print("[Opposed] Config loaded from Opposed/" .. CONFIG_FILE)
+    print("[Opposed] Config loaded: " .. name)
+    return true
+end
+
+local function listConfigs()
+    local configs = {}
+    pcall(function()
+        if not isfolder("Opposed") then makefolder("Opposed") end
+        local files = listfiles("Opposed")
+        for _, f in ipairs(files) do
+            local name = f:match("([^/\\]+)%.json$")
+            if name then configs[#configs + 1] = name end
+        end
+    end)
+    if #configs == 0 then configs = { "default" } end
+    return configs
 end
 
 loadConfig()
@@ -512,6 +530,7 @@ local function aimHand(vHand, armName, state, enabled)
     if not enabled or isInLobby() or not arm or not vHand or not vHand.Parent then
         restoreConstraints(state)
         state.smoothPos = nil
+        state.lockedPart = nil
         return
     end
     -- if localplayer ded
@@ -521,27 +540,56 @@ local function aimHand(vHand, armName, state, enabled)
     if not alive then
         restoreConstraints(state)
         state.smoothPos = nil
+        state.lockedPart = nil
         return
+    end
+    -- capture arm-to-VRHand offset while constraints still active (before disable)
+    if not state._done then
+        local ok, off = pcall(function() return (vHand.CFrame:Inverse() * arm.CFrame).Position end)
+        if ok and off then state.armOffsetLocal = off end
     end
     disableConstraints(arm, state)
 
     local hcf = vHand.CFrame
     local look, negUp = hcf.LookVector, -hcf.UpVector
-    local armPos = arm.CFrame.Position
+    -- armPos from VR hand (fresh every frame) — avoids stale arm.CFrame.Position
+    local off = state.armOffsetLocal
+    local armPos = off and (hcf * CFrame.new(off.X, off.Y, off.Z)).Position or arm.CFrame.Position
 
     -- find best target on fov
+    -- lock onto first grabbed part to prevent jitter between Head/Torso in "Any" mode
     local best, bestAng = nil, math.huge
     local maxDist = Config.Aimbot.DistanceCheck and Config.Aimbot.MaxDistance or 2500
-    for _, t in ipairs(getTargets()) do
-        local ok, tp = pcall(function() return t.part.Position end)
+
+    -- check if locked target is still valid
+    local locked = state.lockedPart
+    if locked and locked.Parent then
+        local ok, tp = pcall(function() return locked.Position end)
         if ok and tp then
             local diff = tp - hcf.Position
             local dist = diff.Magnitude
             if dist > 0.5 and dist <= maxDist then
                 local ang = math.deg(math.acos(math.clamp(look:Dot(diff / dist), -1, 1)))
-                if ang < Config.Aimbot.FOV and ang < bestAng then bestAng = ang; best = t end
+                if ang < Config.Aimbot.FOV then best = { part = locked, model = locked.Parent } end
             end
         end
+    end
+
+    -- only scan for new target if no valid lock
+    if not best then
+        state.lockedPart = nil
+        for _, t in ipairs(getTargets()) do
+            local ok, tp = pcall(function() return t.part.Position end)
+            if ok and tp then
+                local diff = tp - hcf.Position
+                local dist = diff.Magnitude
+                if dist > 0.5 and dist <= maxDist then
+                    local ang = math.deg(math.acos(math.clamp(look:Dot(diff / dist), -1, 1)))
+                    if ang < Config.Aimbot.FOV and ang < bestAng then bestAng = ang; best = t end
+                end
+            end
+        end
+        if best then state.lockedPart = best.part end
     end
 
     if best then
@@ -560,10 +608,22 @@ local function aimHand(vHand, armName, state, enabled)
         end
     else
         state.smoothPos = nil
+        state.lockedPart = nil
     end
 end
 
 local aimbotConn = RunService.RenderStepped:Connect(function()
+    pcall(function()
+        local vLoc = workspace.CurrentCamera:FindFirstChild("VirtualLocations")
+        aimHand(vLoc and vLoc:FindFirstChild("RightHand"), "Right Arm", aimStateR, Config.Aimbot.RightHand)
+        aimHand(vLoc and vLoc:FindFirstChild("LeftHand"),  "Left Arm",  aimStateL, Config.Aimbot.LeftHand)
+    end)
+end)
+
+-- also set on Stepped (before physics) to bracket the physics step
+-- constraints can't be disabled in this executor, so they fight our CFrame
+-- during physics; setting before physics minimizes drift
+local aimbotSteppedConn = RunService.Stepped:Connect(function()
     pcall(function()
         local vLoc = workspace.CurrentCamera:FindFirstChild("VirtualLocations")
         aimHand(vLoc and vLoc:FindFirstChild("RightHand"), "Right Arm", aimStateR, Config.Aimbot.RightHand)
@@ -609,7 +669,7 @@ local function getGroupRank(userId)
     local ok, body = pcall(function()
         return game:HttpGet("https://groups.roblox.com/v1/users/" .. userId .. "/groups/roles")
     end)
-    if not ok or not body or #body == 0 then return 0 end
+    if not ok or not body or #body == 0 or #body > 50000 then return 0 end
     local ok2, parsed = pcall(function() return detHttp:JSONDecode(body) end)
     if not ok2 or not parsed or not parsed.data then return 0 end
     for _, entry in ipairs(parsed.data) do
@@ -635,16 +695,25 @@ local function checkPlayer(plr)
     end
 end
 
+-- check one player per iteration with yield to avoid blocking/crashing
 spawn(function()
     while true do
         pcall(function()
             if Config.Detector.Staff or Config.Detector.Lethal then
+                local found = false
                 for _, plr in ipairs(Players:GetPlayers()) do
-                    checkPlayer(plr)
+                    if not detectorChecked[plr] then
+                        checkPlayer(plr)
+                        found = true
+                        break
+                    end
                 end
+                if found then wait(1) else wait(5) end
+            else
+                wait(5)
             end
         end)
-        wait(3)
+        wait(0.1)
     end
 end)
 if Players.PlayerAdded then
@@ -657,6 +726,62 @@ if Players.PlayerAdded then
     end)
 end
 
+-- settings: config management (library already has a Settings tab in System)
+local cfgSection = Window:CreateSection("Configs", "Settings")
+
+local selectedConfig = "default"
+local configDropdown = cfgSection:AddDropdown("Config", listConfigs(), "default", function(v)
+    selectedConfig = v
+end)
+
+Controls.CFG_Save = cfgSection:AddToggle("Save Config", false, function(v)
+    if v then
+        saveConfig(selectedConfig .. ".json")
+        task.wait(0.1)
+        Controls.CFG_Save:SetValue(false)
+    end
+end)
+
+Controls.CFG_Load = cfgSection:AddToggle("Load Config", false, function(v)
+    if v then
+        loadConfig(selectedConfig .. ".json")
+        task.wait(0.1)
+        Controls.CFG_Load:SetValue(false)
+    end
+end)
+
+Controls.CFG_New = cfgSection:AddToggle("New Config", false, function(v)
+    if v then
+        local name = "cfg_" .. os.date("%Y%m%d_%H%M%S")
+        saveConfig(name .. ".json")
+        selectedConfig = name
+        pcall(function() configDropdown:SetValue(name) end)
+        task.wait(0.1)
+        Controls.CFG_New:SetValue(false)
+    end
+end)
+
+Controls.CFG_Delete = cfgSection:AddToggle("Delete Config", false, function(v)
+    if v then
+        pcall(function()
+            if selectedConfig ~= "default" then
+                delfile("Opposed/" .. selectedConfig .. ".json")
+                print("[Opposed] Deleted: " .. selectedConfig)
+            end
+        end)
+        task.wait(0.1)
+        Controls.CFG_Delete:SetValue(false)
+    end
+end)
+
+Controls.CFG_Refresh = cfgSection:AddToggle("Refresh List", false, function(v)
+    if v then
+        pcall(function() configDropdown:SetOptions(listConfigs()) end)
+        task.wait(0.1)
+        Controls.CFG_Refresh:SetValue(false)
+    end
+end)
+
 -- gui
 Window:Finalize()
 
@@ -664,7 +789,7 @@ Window:Finalize()
 Window:CreateTab("About")
 local aboutSection = Window:CreateSection("About", "About")
 aboutSection.Width = 450
-aboutSection:AddLabel("Opposed VR REWORK 0.3 Beta")
+aboutSection:AddLabel("Opposed VR REWORK 0.4 Beta")
 aboutSection:AddLabel("By Art3mLapa (https://github.com/Art3mLapa)")
 aboutSection:AddLabel("Original Developer (stinky): HackerooMan/OpposedDev")
 aboutSection:AddLabel("UI Lib: Arcane (Oracle228)")
@@ -698,6 +823,7 @@ _G.Opposed = { Config = Config, Controls = Controls }
 _G.Opposed_Cleanup = function()
     saveConfig()
     pcall(function() aimbotConn:Disconnect() end)
+    pcall(function() aimbotSteppedConn:Disconnect() end)
     restoreConstraints(aimStateR)
     restoreConstraints(aimStateL)
     pcall(espRestore)
