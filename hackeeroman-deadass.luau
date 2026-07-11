@@ -126,7 +126,7 @@ local ENV_OFF = {
     },
 }
 
--- buggy shit (little bit fixed)
+-- buggy shit
 local envColorFmt
 do
     local ambOff = ENV_OFF.Lighting.Ambient
@@ -498,16 +498,23 @@ end
 
 local aimStateR, aimStateL = {}, {}
 
+local function isInLobby()
+    local map = workspace:FindFirstChild("Map")
+    local scripts = map and map:FindFirstChild("ClientScripts")
+    if not scripts then return false end
+    return scripts:FindFirstChild("LobbyUI") ~= nil
+        and scripts:FindFirstChild("PriceUI") ~= nil
+end
+
 local function aimHand(vHand, armName, state, enabled)
     local lpChar = Players.LocalPlayer.Character
     local arm = lpChar and lpChar:FindFirstChild(armName)
-    if not enabled or not arm or not vHand or not vHand.Parent then
+    if not enabled or isInLobby() or not arm or not vHand or not vHand.Parent then
         restoreConstraints(state)
         state.smoothPos = nil
         return
     end
-    -- Pause if the local player is dead -- let the arm follow the body
-    -- naturally during death/respawn instead of floating in place.
+    -- if localplayer ded
     local hum = lpChar:FindFirstChildOfClass("Humanoid")
     local alive = true
     pcall(function() alive = hum and hum.Health > 0 end)
@@ -520,10 +527,6 @@ local function aimHand(vHand, armName, state, enabled)
 
     local hcf = vHand.CFrame
     local look, negUp = hcf.LookVector, -hcf.UpVector
-    -- Use the ARM's own position (not the controller's) as the CFrame origin.
-    -- This prevents the arm from teleporting to the controller position each frame
-    -- (which caused the "jerking to controller" effect). The arm stays at its
-    -- natural shoulder position; only the ORIENTATION changes to aim at the target.
     local armPos = arm.CFrame.Position
 
     -- find best target on fov
@@ -568,7 +571,7 @@ local aimbotConn = RunService.RenderStepped:Connect(function()
     end)
 end)
 
--- no collide
+-- nocollide
 spawn(function()
     while true do
         pcall(function()
@@ -588,7 +591,7 @@ spawn(function()
     end
 end)
 
--- staff (developers, moderators, suckdickers etc etc etc)
+-- staff (devs, mods, dicksuckers etc) and lethal detector
 local GROUP_ID     = 9959763
 local STAFF_RANKS  = { [250]=1, [251]=1, [252]=1, [253]=1, [254]=1, [54]=1, [55]=1, [53]=1 }
 local LETHAL_RANKS = { [25]=1, [52]=1 }
@@ -601,7 +604,7 @@ local function kickLocal(reason)
     end)
 end
 
--- thx luavm api
+-- tysm luavm
 local function getGroupRank(userId)
     local ok, body = pcall(function()
         return game:HttpGet("https://groups.roblox.com/v1/users/" .. userId .. "/groups/roles")
@@ -617,7 +620,7 @@ local function getGroupRank(userId)
     return 0
 end
 
--- cache
+-- cache players
 local detectorChecked = {}
 
 local function checkPlayer(plr)
@@ -632,7 +635,6 @@ local function checkPlayer(plr)
     end
 end
 
--- check roles
 spawn(function()
     while true do
         pcall(function()
@@ -645,7 +647,6 @@ spawn(function()
         wait(3)
     end
 end)
-
 if Players.PlayerAdded then
     Players.PlayerAdded:Connect(function(plr)
         pcall(function()
@@ -659,16 +660,16 @@ end
 -- gui
 Window:Finalize()
 
--- about page
+-- About page
 Window:CreateTab("About")
 local aboutSection = Window:CreateSection("About", "About")
 aboutSection.Width = 450
-aboutSection:AddLabel("Opposed VR REWORK 0.2 Beta")
+aboutSection:AddLabel("Opposed VR REWORK 0.3 Beta")
 aboutSection:AddLabel("By Art3mLapa (https://github.com/Art3mLapa)")
 aboutSection:AddLabel("Original Developer (stinky): HackerooMan/OpposedDev")
 aboutSection:AddLabel("UI Lib: Arcane (Oracle228)")
 aboutSection:AddLabel("Offsets: imtheo")
-aboutSection:AddLabel("any bugs or suggestions: dm dis art3mkalapapapapapa")
+aboutSection:AddLabel("any bugs or suggestions: dm dis art3mkalapapapapa")
 Window:UpdateVisibility()
 
 -- bg
