@@ -620,17 +620,6 @@ local aimbotConn = RunService.RenderStepped:Connect(function()
     end)
 end)
 
--- also set on Stepped (before physics) to bracket the physics step
--- constraints can't be disabled in this executor, so they fight our CFrame
--- during physics; setting before physics minimizes drift
-local aimbotSteppedConn = RunService.Stepped:Connect(function()
-    pcall(function()
-        local vLoc = workspace.CurrentCamera:FindFirstChild("VirtualLocations")
-        aimHand(vLoc and vLoc:FindFirstChild("RightHand"), "Right Arm", aimStateR, Config.Aimbot.RightHand)
-        aimHand(vLoc and vLoc:FindFirstChild("LeftHand"),  "Left Arm",  aimStateL, Config.Aimbot.LeftHand)
-    end)
-end)
-
 -- nocollide
 spawn(function()
     while true do
@@ -823,7 +812,6 @@ _G.Opposed = { Config = Config, Controls = Controls }
 _G.Opposed_Cleanup = function()
     saveConfig()
     pcall(function() aimbotConn:Disconnect() end)
-    pcall(function() aimbotSteppedConn:Disconnect() end)
     restoreConstraints(aimStateR)
     restoreConstraints(aimStateL)
     pcall(espRestore)
