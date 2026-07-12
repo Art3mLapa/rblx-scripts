@@ -530,7 +530,6 @@ local function aimHand(vHand, armName, state, enabled)
     if not enabled or isInLobby() or not arm or not vHand or not vHand.Parent then
         restoreConstraints(state)
         state.smoothPos = nil
-        state.lockedPart = nil
         return
     end
     -- if localplayer ded
@@ -540,56 +539,27 @@ local function aimHand(vHand, armName, state, enabled)
     if not alive then
         restoreConstraints(state)
         state.smoothPos = nil
-        state.lockedPart = nil
         return
-    end
-    -- capture arm-to-VRHand offset while constraints still active (before disable)
-    if not state._done then
-        local ok, off = pcall(function() return (vHand.CFrame:Inverse() * arm.CFrame).Position end)
-        if ok and off then state.armOffsetLocal = off end
     end
     disableConstraints(arm, state)
 
     local hcf = vHand.CFrame
     local look, negUp = hcf.LookVector, -hcf.UpVector
-    -- armPos from VR hand (fresh every frame) — avoids stale arm.CFrame.Position
-    local off = state.armOffsetLocal
-    local armPos = off and (hcf * CFrame.new(off.X, off.Y, off.Z)).Position or arm.CFrame.Position
+    local armPos = arm.CFrame.Position
 
     -- find best target on fov
-    -- lock onto first grabbed part to prevent jitter between Head/Torso in "Any" mode
     local best, bestAng = nil, math.huge
     local maxDist = Config.Aimbot.DistanceCheck and Config.Aimbot.MaxDistance or 2500
-
-    -- check if locked target is still valid
-    local locked = state.lockedPart
-    if locked and locked.Parent then
-        local ok, tp = pcall(function() return locked.Position end)
+    for _, t in ipairs(getTargets()) do
+        local ok, tp = pcall(function() return t.part.Position end)
         if ok and tp then
             local diff = tp - hcf.Position
             local dist = diff.Magnitude
             if dist > 0.5 and dist <= maxDist then
                 local ang = math.deg(math.acos(math.clamp(look:Dot(diff / dist), -1, 1)))
-                if ang < Config.Aimbot.FOV then best = { part = locked, model = locked.Parent } end
+                if ang < Config.Aimbot.FOV and ang < bestAng then bestAng = ang; best = t end
             end
         end
-    end
-
-    -- only scan for new target if no valid lock
-    if not best then
-        state.lockedPart = nil
-        for _, t in ipairs(getTargets()) do
-            local ok, tp = pcall(function() return t.part.Position end)
-            if ok and tp then
-                local diff = tp - hcf.Position
-                local dist = diff.Magnitude
-                if dist > 0.5 and dist <= maxDist then
-                    local ang = math.deg(math.acos(math.clamp(look:Dot(diff / dist), -1, 1)))
-                    if ang < Config.Aimbot.FOV and ang < bestAng then bestAng = ang; best = t end
-                end
-            end
-        end
-        if best then state.lockedPart = best.part end
     end
 
     if best then
@@ -608,7 +578,6 @@ local function aimHand(vHand, armName, state, enabled)
         end
     else
         state.smoothPos = nil
-        state.lockedPart = nil
     end
 end
 
