@@ -90,6 +90,7 @@ local Config = {
         DistanceCheck = false,
         MaxDistance   = 500,
         TeamCheck     = false,
+        WallCheck     = false,
     },
     Detector = {
         Staff  = false,
@@ -274,6 +275,9 @@ Controls.Aimbot_MaxDistance = aimbotSection:AddSlider("Max Distance", {
 Controls.Aimbot_TeamCheck = aimbotSection:AddToggle("Team Check", false, function(v)
     Config.Aimbot.TeamCheck = v
 end)
+Controls.Aimbot_WallCheck = aimbotSection:AddToggle("Wall Check", false, function(v)
+    Config.Aimbot.WallCheck = v
+end)
 
 local SLIDER_FILL = Color3.fromRGB(70, 70, 70)
 for i, item in ipairs(aimbotSection.ContentDrawings) do
@@ -299,6 +303,7 @@ local saveableKeys = {
     { ctrl = "Aimbot_DistanceCheck",  cfg = function() return Config.Aimbot.DistanceCheck end,   apply = function(v) Config.Aimbot.DistanceCheck = v end },
     { ctrl = "Aimbot_MaxDistance",    cfg = function() return Config.Aimbot.MaxDistance end,     apply = function(v) Config.Aimbot.MaxDistance = v end },
     { ctrl = "Aimbot_TeamCheck",      cfg = function() return Config.Aimbot.TeamCheck end,       apply = function(v) Config.Aimbot.TeamCheck = v end },
+    { ctrl = "Aimbot_WallCheck",      cfg = function() return Config.Aimbot.WallCheck end,       apply = function(v) Config.Aimbot.WallCheck = v end },
     { ctrl = "DET_Staff",             cfg = function() return Config.Detector.Staff end,         apply = function(v) Config.Detector.Staff = v end },
     { ctrl = "DET_Lethal",            cfg = function() return Config.Detector.Lethal end,        apply = function(v) Config.Detector.Lethal = v end },
     { ctrl = "OTH_NoCollideR",        cfg = function() return Config.Other.NoCollideRight end,  apply = function(v) Config.Other.NoCollideRight = v end },
@@ -524,6 +529,22 @@ local function isInLobby()
         and scripts:FindFirstChild("PriceUI") ~= nil
 end
 
+local function isVisible(origin, targetPart, targetModel, localChar)
+    local direction = targetPart.Position - origin
+    if direction.Magnitude < 0.5 then return true end
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = localChar and { localChar } or {}
+
+    local ok, result = pcall(function()
+        return workspace:Raycast(origin, direction, params)
+    end)
+    if not ok then return false end
+    if not result then return true end
+    return result.Instance == targetPart or result.Instance:IsDescendantOf(targetModel)
+end
+
 local function aimHand(vHand, armName, state, enabled)
     local lpChar = Players.LocalPlayer.Character
     local arm = lpChar and lpChar:FindFirstChild(armName)
@@ -556,8 +577,11 @@ local function aimHand(vHand, armName, state, enabled)
             local diff = tp - hcf.Position
             local dist = diff.Magnitude
             if dist > 0.5 and dist <= maxDist then
-                local ang = math.deg(math.acos(math.clamp(look:Dot(diff / dist), -1, 1)))
-                if ang < Config.Aimbot.FOV and ang < bestAng then bestAng = ang; best = t end
+                local visible = not Config.Aimbot.WallCheck or isVisible(hcf.Position, t.part, t.model, lpChar)
+                if visible then
+                    local ang = math.deg(math.acos(math.clamp(look:Dot(diff / dist), -1, 1)))
+                    if ang < Config.Aimbot.FOV and ang < bestAng then bestAng = ang; best = t end
+                end
             end
         end
     end
