@@ -771,7 +771,7 @@ Window:Finalize()
 Window:CreateTab("About")
 local aboutSection = Window:CreateSection("About", "About")
 aboutSection.Width = 450
-aboutSection:AddLabel("Opposed VR REWORK 0.4 Beta")
+aboutSection:AddLabel("Opposed VR REWORK 0.5 Beta")
 aboutSection:AddLabel("By Art3mLapa (https://github.com/Art3mLapa)")
 aboutSection:AddLabel("Original Developer (stinky): HackerooMan/OpposedDev")
 aboutSection:AddLabel("UI Lib: Arcane (Oracle228)")
