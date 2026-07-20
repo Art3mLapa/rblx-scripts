@@ -91,6 +91,7 @@ local Config = {
         MaxDistance   = 500,
         TeamCheck     = false,
         WallCheck     = false,
+        DeviceCheck   = "Any",
     },
     Detector = {
         Staff  = false,
@@ -278,6 +279,9 @@ end)
 Controls.Aimbot_WallCheck = aimbotSection:AddToggle("Wall Check", false, function(v)
     Config.Aimbot.WallCheck = v
 end)
+Controls.Aimbot_DeviceCheck = aimbotSection:AddDropdown("Device Check", { "PC", "VR", "Any" }, "Any", function(v)
+    Config.Aimbot.DeviceCheck = v
+end)
 
 local SLIDER_FILL = Color3.fromRGB(70, 70, 70)
 for i, item in ipairs(aimbotSection.ContentDrawings) do
@@ -304,6 +308,7 @@ local saveableKeys = {
     { ctrl = "Aimbot_MaxDistance",    cfg = function() return Config.Aimbot.MaxDistance end,     apply = function(v) Config.Aimbot.MaxDistance = v end },
     { ctrl = "Aimbot_TeamCheck",      cfg = function() return Config.Aimbot.TeamCheck end,       apply = function(v) Config.Aimbot.TeamCheck = v end },
     { ctrl = "Aimbot_WallCheck",      cfg = function() return Config.Aimbot.WallCheck end,       apply = function(v) Config.Aimbot.WallCheck = v end },
+    { ctrl = "Aimbot_DeviceCheck",    cfg = function() return Config.Aimbot.DeviceCheck end,     apply = function(v) Config.Aimbot.DeviceCheck = v end },
     { ctrl = "DET_Staff",             cfg = function() return Config.Detector.Staff end,         apply = function(v) Config.Detector.Staff = v end },
     { ctrl = "DET_Lethal",            cfg = function() return Config.Detector.Lethal end,        apply = function(v) Config.Detector.Lethal = v end },
     { ctrl = "OTH_NoCollideR",        cfg = function() return Config.Other.NoCollideRight end,  apply = function(v) Config.Other.NoCollideRight = v end },
@@ -463,6 +468,15 @@ local function getTargetParts(model)
     end
 end
 
+local function matchesDevice(model)
+    local check = Config.Aimbot.DeviceCheck
+    if check == "Any" then return true end
+
+    local vrHealth = model:FindFirstChild("VRHealth")
+    local isVR = vrHealth and vrHealth:IsA("NumberValue")
+    return check == "VR" and isVR or check == "PC" and not isVR
+end
+
 local targetCache, targetStamp = {}, 0
 local function getTargets()
     if os.clock() - targetStamp < 0.5 then return targetCache end
@@ -476,7 +490,7 @@ local function getTargets()
                 local hum = m:FindFirstChildOfClass("Humanoid")
                 if hum then
                     local alive = true; pcall(function() alive = hum.Health > 0 end)
-                    if alive then
+                    if alive and matchesDevice(m) then
                         -- Team Check: skip same-team players when enabled
                         local sameTeam = false
                         if Config.Aimbot.TeamCheck then
@@ -771,7 +785,7 @@ Window:Finalize()
 Window:CreateTab("About")
 local aboutSection = Window:CreateSection("About", "About")
 aboutSection.Width = 450
-aboutSection:AddLabel("Opposed VR REWORK 0.5 Beta")
+aboutSection:AddLabel("Opposed VR REWORK 0.4 Beta")
 aboutSection:AddLabel("By Art3mLapa (https://github.com/Art3mLapa)")
 aboutSection:AddLabel("Original Developer (stinky): HackerooMan/OpposedDev")
 aboutSection:AddLabel("UI Lib: Arcane (Oracle228)")
